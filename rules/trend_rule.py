@@ -40,5 +40,5 @@ def evaluate(analysis: MarketAnalysis) -> RuleResult:
         rule_name="TrendRule",
         long_score=30,
         short_score=30,
-        reason="Sideways trend — no clear direction",
+        reason="Sideways trend - no clear direction",
     )

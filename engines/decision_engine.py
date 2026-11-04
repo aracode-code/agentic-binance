@@ -65,7 +65,7 @@ def decide(analysis: MarketAnalysis) -> MarketDecision:
     if action != "WAIT" and action != analysis.trade_bias:
         reasons.append(
             f"Konflik: bias AI {analysis.trade_bias} tidak sejalan dengan aturan "
-            f"{action} — ditahan ke WAIT"
+            f"{action} - ditahan ke WAIT"
         )
         action = "WAIT"
         confidence = 0
