@@ -9,6 +9,7 @@ from tkinter import scrolledtext, ttk
 
 from agents.market_agent import analyze
 from engines.decision_engine import decide
+from engines.risk_manager import assess_symbol, to_lines
 from engines.snapshot import build_snapshot, to_summary_lines
 from tools.binance_tool import (
     get_ticker,
@@ -64,7 +65,7 @@ def format_price_change_percent(value: str) -> str:
         return value or ""
 
 
-def format_analysis(symbol: str, analysis, decision, snapshot=None) -> str:
+def format_analysis(symbol: str, analysis, decision, snapshot=None, plan=None) -> str:
     """Format the AI analysis, the deterministic indicators, and the decision."""
     lines = [
         "=" * 50,
@@ -88,6 +89,12 @@ def format_analysis(symbol: str, analysis, decision, snapshot=None) -> str:
         f"{'Decision':<16}: {decision.action}",
         f"{'Conviction':<16}: {decision.confidence}",
         "",
+    ]
+    if plan is not None:
+        lines.append("TRADE PLAN (risk manager)")
+        lines.extend(to_lines(plan))
+        lines.append("")
+    lines += [
         f"{'Reason':<16}: {analysis.reason}",
         f"{'Rule Detail':<16}: {decision.reason}",
         "=" * 50,
@@ -220,6 +227,7 @@ def main() -> None:
             analysis = analyze(symbol)
             decision = decide(analysis)
             snapshot = build_snapshot(symbol)
+            plan = assess_symbol(decision, snapshot)
 
             root.after(0, lambda: status.config(text="Fetching market data..."))
             ticker = get_ticker(symbol)
@@ -228,7 +236,9 @@ def main() -> None:
             ticker_text = format_ticker(ticker, premium, oi)
 
             full_result = (
-                format_analysis(symbol, analysis, decision, snapshot) + "\n" + ticker_text
+                format_analysis(symbol, analysis, decision, snapshot, plan)
+                + "\n"
+                + ticker_text
             )
             root.after(0, lambda: show_result(full_result, "Done."))
         except Exception as exc:

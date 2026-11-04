@@ -9,6 +9,7 @@ AI Trading Agent untuk Binance Futures menggunakan DeepSeek sebagai reasoning en
 - **AI Reasoning** — DeepSeek LLM menilai konteks memakai angka indikator yang sudah dihitung
 - **Rule Engine** — Trend, Momentum, Volatility rules; keputusan akhir tunduk pada aturan (bias AI yang bertentangan ditahan ke WAIT)
 - **Conviction Score** — Skor internal 0-100 dari edge antar-aturan; bukan probabilitas profit
+- **Risk Manager** — Ukuran posisi deterministik dari equity & ATR: stop, take profit, quantity (dibulatkan ke stepSize), leverage cap, dan guard veto (conviction rendah, posisi terbuka, rugi harian, minimum exchange). **Hanya usul — belum mengirim order**
 - **Storage** — SQLite untuk history analisa
 - **GUI** — Tkinter dengan 4 tab: Analyze, Scan, Watch, Positions
 - **Scanner** — Scan top pairs by volume dengan color coding
@@ -27,7 +28,7 @@ AI Trading Agent untuk Binance Futures menggunakan DeepSeek sebagai reasoning en
 
 1. Clone repository
 ```bash
-git clone https://github.com/aracode-labs/agentic-binance.git
+git clone https://github.com/aracode-code/agentic-binance.git
 cd agentic-binance
 ```
 
@@ -82,12 +83,14 @@ agentic_binance/
 │   ├── indicators.py       # SMA, EMA, RSI, MACD, Bollinger, ATR
 │   ├── market_structure.py # Swing, BOS/CHoCH, S/R, breakout
 │   ├── snapshot.py         # Snapshot multi-timeframe + format prompt
-│   └── decision_engine.py  # Rule engine (veto bias AI)
+│   ├── decision_engine.py  # Rule engine (veto bias AI)
+│   └── risk_manager.py     # Sizing, stop/TP, guard veto
 ├── models/
 │   ├── market_analysis.py  # Analysis schema
 │   ├── market_decision.py  # Decision schema
-│   └── market_snapshot.py  # Snapshot contract
-├── tests/                  # unittest (indikator, struktur, snapshot, cache)
+│   ├── market_snapshot.py  # Snapshot contract
+│   └── trade_plan.py       # Risk manager output contract
+├── tests/                  # unittest (indikator, struktur, snapshot, cache, risk manager)
 ├── rules/
 │   ├── trend_rule.py       # Trend detection
 │   ├── momentum_rule.py    # Momentum detection
@@ -104,7 +107,23 @@ BINANCE_API_KEY=your_api_key
 BINANCE_API_SECRET=your_api_secret
 DEEPSEEK_API_KEY=your_deepseek_key
 USE_TESTNET=false
+
+# Risk manager (profil konservatif, nilai dalam persen)
+RISK_PER_TRADE_PCT=0.5
+MAX_LEVERAGE=5
+MAX_NOTIONAL_PCT=20
+DAILY_LOSS_LIMIT_PCT=3
+MAX_OPEN_POSITIONS=3
+MIN_CONVICTION=60
+STOP_ATR_MULT=1.5
+STOP_MIN_PCT=0.3
+STOP_MAX_PCT=3
+REWARD_RATIO=2
 ```
+
+Stop = `STOP_ATR_MULT × ATR(1h)`, dijepit ke `STOP_MIN_PCT…STOP_MAX_PCT` harga.
+Ukuran = `equity × RISK_PER_TRADE_PCT` dibagi jarak stop, lalu dibatasi
+`MAX_NOTIONAL_PCT × equity` dan `MAX_LEVERAGE × saldo tersedia`.
 
 ## GUI Tabs
 
@@ -125,7 +144,20 @@ Trade Bias     : LONG
 Action         : LOOK FOR LONG
 Confidence     : MEDIUM
 Reason         : Price above EMA with rising volume...
+
+TRADE PLAN (risk manager)
+Trade Plan     : APPROVED
+Side           : LONG
+Entry          : 78,334.3
+Stop Loss      : 77,652.5
+Take Profit    : 79,697.9
+Quantity       : 0.002
+Notional       : 156.67 USDT
+Leverage       : 1x
+Risk           : 1.36 USDT (0.14% equity)
 ```
+
+Trade Plan hanya proposal. Eksekusi order belum diimplementasikan (fase 5).
 
 ## License
 

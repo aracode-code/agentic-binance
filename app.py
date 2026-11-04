@@ -10,6 +10,7 @@ import sys
 
 from agents.market_agent import analyze
 from engines.decision_engine import decide
+from engines.risk_manager import assess_symbol, to_lines
 from engines.snapshot import build_snapshot, to_summary_lines
 
 
@@ -25,6 +26,7 @@ def main() -> None:
         analysis = analyze(symbol)
         decision = decide(analysis)
         snapshot = build_snapshot(symbol)
+        plan = assess_symbol(decision, snapshot)
     except Exception as exc:
         print(f"\n[ERROR] {type(exc).__name__}: {exc}")
         print(f"Periksa symbol '{symbol}' dan koneksi internet Anda.")
@@ -49,6 +51,10 @@ def main() -> None:
     print()
     print(f"{'Decision':<16}: {decision.action}")
     print(f"{'Conviction':<16}: {decision.confidence} (skor internal, bukan probabilitas)")
+    print()
+    print("TRADE PLAN (risk manager)")
+    for line in to_lines(plan):
+        print(f"  {line}")
     print()
     print(f"{'Reason':<16}: {analysis.reason}")
     print(f"{'Rule Detail':<16}: {decision.reason}")

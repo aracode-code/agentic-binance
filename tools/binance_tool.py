@@ -10,10 +10,13 @@ Each function is independently testable and returns raw API response.
 import hashlib
 import hmac
 import time
+from datetime import datetime, timezone
+from urllib.parse import urlencode
 
 import requests
 
 from config.settings import USE_TESTNET
+from tools.cache import get_or_fetch
 
 # Base URL depends on testnet/mainnet mode
 BASE_URL = (
@@ -182,4 +185,121 @@ def get_trade_history(symbol: str, limit: int = 20) -> list:
     response = requests.get(url, headers=headers, params=params, timeout=10)
     response.raise_for_status()
     return response.json()
+
+
+def _signed_get(path: str, params: dict | None = None):
+    """GET a signed Futures endpoint.
+
+    The query string is built once and signed, then sent verbatim, so the
+    signature cannot drift from the parameters Binance receives.
+    """
+    from config.settings import BINANCE_API_KEY, BINANCE_API_SECRET
+
+    if not BINANCE_API_KEY or not BINANCE_API_SECRET:
+        raise RuntimeError("BINANCE_API_KEY / BINANCE_API_SECRET belum diisi di .env")
+
+    query = dict(params or {})
+    query["timestamp"] = int(time.time() * 1000)
+    query["recvWindow"] = 5000
+    payload = urlencode(query)
+    signature = hmac.new(
+        BINANCE_API_SECRET.encode(), payload.encode(), hashlib.sha256
+    ).hexdigest()
+
+    url = f"{BASE_URL}{path}?{payload}&signature={signature}"
+    headers = {"X-MBX-APIKEY": BINANCE_API_KEY}
+    response = requests.get(url, headers=headers, timeout=10)
+    response.raise_for_status()
+    return response.json()
+
+
+def get_account_state() -> dict:
+    """Read-only account snapshot used by the risk manager.
+
+    Returns:
+        {
+            "total_wallet_balance": float,  # equity used for sizing
+            "available_balance": float,
+            "unrealized_pnl": float,
+            "open_positions": int,
+            "open_symbols": list[str],
+            "today_realized_pnl": float | None,  # None when unreadable
+        }
+    """
+    account = _signed_get("/fapi/v2/account")
+
+    positions = [
+        p for p in account.get("positions", [])
+        if float(p.get("positionAmt", 0) or 0) != 0
+    ]
+
+    return {
+        "total_wallet_balance": float(account.get("totalWalletBalance", 0) or 0),
+        "available_balance": float(account.get("availableBalance", 0) or 0),
+        "unrealized_pnl": float(account.get("totalUnrealizedProfit", 0) or 0),
+        "open_positions": len(positions),
+        "open_symbols": sorted({p.get("symbol", "") for p in positions}),
+        "today_realized_pnl": _today_realized_pnl(),
+    }
+
+
+def _today_realized_pnl() -> float | None:
+    """Sum of realized PnL since 00:00 UTC; None when the key cannot read it."""
+    start = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    try:
+        rows = _signed_get(
+            "/fapi/v1/income",
+            {
+                "incomeType": "REALIZED_PNL",
+                "startTime": int(start.timestamp() * 1000),
+                "limit": 1000,
+            },
+        )
+    except requests.HTTPError:
+        return None
+
+    return sum(float(row.get("income", 0) or 0) for row in rows)
+
+
+EXCHANGE_INFO_TTL = 3600
+
+
+def _fetch_exchange_info() -> dict:
+    response = requests.get(f"{BASE_URL}/fapi/v1/exchangeInfo", timeout=15)
+    response.raise_for_status()
+    return response.json()
+
+
+def get_symbol_filters(symbol: str) -> dict:
+    """Trading filters for a symbol, cached for an hour."""
+    info = get_or_fetch("exchange_info", EXCHANGE_INFO_TTL, _fetch_exchange_info)
+    return parse_symbol_filters(info, symbol)
+
+
+def parse_symbol_filters(info: dict, symbol: str) -> dict:
+    """Extract step size, minimums, and tick size from an exchangeInfo payload."""
+    for item in info.get("symbols", []):
+        if item.get("symbol") != symbol:
+            continue
+
+        filters = {f.get("filterType"): f for f in item.get("filters", [])}
+        lot = filters.get("LOT_SIZE", {})
+        # Binance renamed MIN_NOTIONAL to NOTIONAL; accept both shapes.
+        notional = filters.get("MIN_NOTIONAL") or filters.get("NOTIONAL") or {}
+        price = filters.get("PRICE_FILTER", {})
+
+        return {
+            "symbol": symbol,
+            "step_size": float(lot.get("stepSize", 0) or 0),
+            "min_qty": float(lot.get("minQty", 0) or 0),
+            "max_qty": float(lot.get("maxQty", 0) or 0),
+            "min_notional": float(
+                notional.get("notional") or notional.get("minNotional") or 0
+            ),
+            "price_tick": float(price.get("tickSize", 0) or 0),
+        }
+
+    raise ValueError(f"{symbol} tidak ditemukan di exchangeInfo")
 
