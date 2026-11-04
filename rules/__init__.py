@@ -1,0 +1,1 @@
+"""Rules package — independent, testable evaluation rules."""

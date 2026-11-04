@@ -1,0 +1,6 @@
+# Agentic Binance - Python dependencies
+# Step 1: only foundational packages needed
+
+python-dotenv>=1.0.0   # load .env config
+requests>=2.31.0       # HTTP client (Binance & DeepSeek)
+pydantic>=2.0.0        # data validation & schema
